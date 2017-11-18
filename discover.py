@@ -1,79 +1,123 @@
-import time
+import datetime
+import os
 import random
-import csv
-import sqlite3
-from datetime import datetime
+import time
+import traceback
+
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
-chrome_options = webdriver.ChromeOptions()
-chrome_options.add_argument("--start-maximized")
-driver = webdriver.Chrome("chromedriver.exe", chrome_options = chrome_options)
-driver.implicitly_wait(20) # seconds
-
-driver.get("https://www.discovercard.com")
-time.sleep(random.uniform(3, 4))
-
-user_id = driver.find_element_by_id('userid-content')
-user_id.send_keys('')
-password = driver.find_element_by_id('password-content')
-password.send_keys('')
-login = driver.find_element_by_id('log-in-button')
-action = webdriver.common.action_chains.ActionChains(driver)
-action.move_to_element_with_offset(password, 0, 197)
-action.click()
-action.perform()
-
-time.sleep(5)
-
-driver.find_elements_by_xpath("//*[contains(text(), 'Activity & Payments')]")[0].click()
-driver.find_elements_by_xpath("//*[contains(text(), 'Spend Analyzer')]")[0].click()
-time.sleep(10)
-questions = driver.find_elements_by_xpath("//*[contains(text(), 'Questions?')]")[0]
-action = webdriver.common.action_chains.ActionChains(driver)
-action.move_to_element_with_offset(questions, 100, 105)
-action.click()
-action.perform()
+from secrets import PASSWORD, USERNAME
 
 
-conn = sqlite3.connect('example.db')
-c = conn.cursor()
-# Create table
-c.execute('''CREATE TABLE if not exists discover
-             (category text, description text, amount real, post_date date, trans_date date)''')
+def get_csv_count():
+    """
+    Returns the total number of csvs in /data
+    Used to determine if a csv was downloaded or not
+    """
+    return len([each for each in os.listdir('/data') if each.endswith('.csv')])
 
-# c.execute('SELECT trans_date FROM discover ORDER BY trans_date DESC LIMIT 1')
-# print c.fetchone()[0]
 
-# today = datetime.now()
-# this_month = (datetime(year=today.year, month=today.month, day=1).date(),)
-# c.execute('SELECT trans_date FROM discover WHERE trans_date >= ? ORDER BY trans_date DESC', this_month)
-# print c.fetchall()[-1]
+def init_selenium(implicitly_wait=20, page_load_timeout=10):
+    """
+    Creates a browsermob-proxy and selenium driver
+    """
 
-new_transations = []
-with open('../Downloads/Discover-Spend-Analyzer-.csv', 'r') as csv_input:
-	reader = csv.DictReader(csv_input)
-	
-	new_data_found = False
-	for row in reader:
-		row['Amount'] = float(row['Amount'])
-		post_date = datetime.strptime(row['Post Date'], "%m/%d/%Y").date()
-		trans_date = datetime.strptime(row['Trans. Date'], "%m/%d/%Y").date()
-		row_tuple = (row['Category'], row['Description'], row['Amount'], post_date, trans_date)
-		if not new_data_found:
-			c.execute('SELECT * FROM discover WHERE category=? AND description=? AND amount=? AND post_date=? AND trans_date=?', row_tuple)
-			row_exists = c.fetchone()
-			if row_exists:
-				continue
-			else:
-				new_data_found = True
+    # Waits 2 seconds to let selenium start up
+    time.sleep(2)
 
-		new_transations.append(row_tuple)
+    try:
+        # create firefox profile
+        # alls automatic downloads
+        fp = webdriver.FirefoxProfile()
+        # fp.set_preference("plugin.state.flash", 2)
+        fp.set_preference('browser.download.folderList', 2)
+        fp.set_preference('browser.download.manager.showWhenStarting', False)
+        fp.set_preference('browser.download.dir', '/data')
+        fp.set_preference("browser.helperApps.neverAsk.saveToDisk", "application/csv;charset=ISO-8859-1")
+        dc = webdriver.DesiredCapabilities.FIREFOX
+        dc['firefox_profile'] = fp.encoded
+        driver = webdriver.Remote(
+            command_executor=r"http://selenium-server:4444/wd/hub",
+            desired_capabilities=dc,
+        )
+        driver.implicitly_wait(implicitly_wait)
+        driver.set_page_load_timeout(page_load_timeout)
 
-c.executemany('INSERT INTO discover VALUES (?,?,?,?,?)', new_transations)
-conn.commit()
+        return driver
+    except:
+        raise Exception(
+            "Error starting selenium: traceback: {0}".format(
+                traceback.format_exc()
+            )
+        )
 
-conn.close()
+
+def main():
+    """
+    Logins into discover.com
+    Downloads spendanalyzer csv for 2014-currentmonth
+    TODO: allow params to be set in discover url to get other dates
+    """
+
+    csv_count = get_csv_count()
+
+    driver = init_selenium()
+
+    driver.get("https://www.discovercard.com")
+    time.sleep(random.uniform(3, 4))
+
+    # Login
+    login_div = driver.find_element_by_class_name('content-login')
+    user_id = login_div.find_element_by_id('userid-content')
+    user_id.send_keys(USERNAME)
+    password = login_div.find_element_by_id('password-content')
+    password.send_keys(PASSWORD)
+    login_div.find_element_by_id('log-in-button').click()
+    time.sleep(random.uniform(2, 4))
+
+    # Hit spendanalyzer csv url directly
+    # It will always time out since firefox doesnt see any response
+    try:
+        start_date = 20140101
+        # hack to get end_date currentYearcurrentMonthEndOfMonth
+        next_month = datetime.datetime.now().date().replace(day=28) + datetime.timedelta(days=4)  # this will never fail
+        end_date = str(next_month - datetime.timedelta(days=next_month.day)).replace('-', '')
+        driver.get(
+            f'https://card.discover.com/cardmembersvcs/spendanalyzer/app/spend.csv?date={start_date}&endDate={end_date}&outputFormat=csv&sortCol=transDate&sortAsc=Y&submit=Download'
+        )
+    except:
+        pass
+
+    if not get_csv_count() > csv_count:
+        raise Exception('Error, did not download a csv')
+
+    print('Downloaded csv')
+
+    # unused code
+    # This code goes to spend Analyzer and clicks to download the csv
+    # most have flash installed
+
+    # driver.find_elements_by_xpath("//*[contains(text(), 'Activity & Payments')]")[0].click()
+    # driver.find_elements_by_xpath("//*[contains(text(), 'Spend Analyzer')]")[0].click()
+    # time.sleep(30)
+    # driver.save_screenshot('/data/spend_analysier.png')
+    # questions = driver.find_elements_by_xpath("//*[contains(text(), 'Questions?')]")[0]
+    # action = webdriver.common.action_chains.ActionChains(driver)
+    # action.move_to_element_with_offset(questions, 100, 105)
+    # action.click()
+    # action.perform()
+    # time.sleep(1)
+    # driver.save_screenshot('/data/spend_analysier1.png')
+    # action.move_by_offset(-370, 250)
+    # action.click()
+    # action.perform()
+    # time.sleep(1)
+    # driver.save_screenshot('/data/spend_analysier2.png')
+    # action.move_by_offset(-170, 70)
+    # action.click()
+    # action.perform()
+    # driver.save_screenshot('/data/spend_analysier3.png')
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,22 @@
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# edited docker from file https://github.com/SeleniumHQ/docker-selenium/blob/master/StandaloneFirefox/Dockerfile
+# Root user is need at entry_point to download files/install flash
+# !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+FROM selenium/node-firefox:3.7.1-beryllium
+LABEL authors=SeleniumHQ
+
+USER root
+
+#============
+# Install FlashPlayer Not used, left here incase this needs flash in the future
+#============
+
+#COPY sources.list /etc/apt/sources.list
+#RUN sudo sed -i "/^# deb.*multiverse/ s/^# //" /etc/apt/sources.list && sudo apt-get update && sudo sed -i.bak "/^# deb .*partner/ s/^# //" /etc/apt/sources.list && sudo apt-get update && apt-cache search adobe-flashplugin && sudo apt-get install -y flashplugin-installer firefox chromium-browser ttf-bitstream-vera ttf-dejavu libnspr4-0d libnss3-1d libgtk2.0-0
+
+#====================================
+# Scripts to run Selenium Standalone
+#====================================
+COPY entry_point.sh /opt/bin/entry_point.sh
+
+EXPOSE 4444

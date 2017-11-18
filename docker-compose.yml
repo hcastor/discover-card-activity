@@ -1,0 +1,22 @@
+version: '2'
+services:
+  discover:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./data:/data
+      - ./secrets.py:/discover-card-activity/secrets.py
+    depends_on:
+      - selenium-server
+  selenium-server:
+    build:
+      context: .
+      dockerfile: Dockerfile-ff
+    volumes:
+      - ./data:/data
+    ports:
+      - 4444:4444
+    expose:
+      - "4444"
+    shm_size: 2g
